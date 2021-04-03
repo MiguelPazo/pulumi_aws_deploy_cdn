@@ -11,7 +11,7 @@ export const cdnName = configPulumi.get("cdnName");
 export const ttl = parseInt(configPulumi.get("ttl"));
 export const mainBucket = `${cdnName}-bucket`;
 export const suffix = `-${pulumi.getStack()}`;
-export const generalTagName = cdnName || "deploy_cdn";
+export const generalTagName = configPulumi.get("generalTagName");
 export const targetDomain = configPulumi.get("targetDomain");
 
 /**
