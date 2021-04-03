@@ -1,0 +1,3 @@
+name: deploy_cdn
+runtime: nodejs
+description: deploy_description
