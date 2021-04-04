@@ -10,7 +10,7 @@ import * as path from "path";
 import * as config from "./config";
 
 const mainBucket = new aws.s3.Bucket(`${config.cdnName}-bucket`, {
-    bucket: `${config.mainBucket}${config.suffix}`,
+    bucket: `${config.mainBucket}`,
     acl: "public-read",
     website: {
         indexDocument: "index.html",
