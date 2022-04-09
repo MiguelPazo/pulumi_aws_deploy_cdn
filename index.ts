@@ -1,7 +1,6 @@
 /**
  * Created by Miguel Pazo (https://miguelpazo.com)
  */
-
 import * as pulumi from "@pulumi/pulumi";
 import * as aws from "@pulumi/aws";
 import * as fs from "fs";
@@ -9,6 +8,9 @@ import * as mime from "mime";
 import * as path from "path";
 import * as config from "./config";
 
+/**
+ * Create bucket for static content and upload content
+ */
 const mainBucket = new aws.s3.Bucket(`${config.cdnName}-bucket`, {
     bucket: `${config.mainBucket}`,
     acl: "public-read",
@@ -22,9 +24,7 @@ const mainBucket = new aws.s3.Bucket(`${config.cdnName}-bucket`, {
     }
 });
 
-// Sync the contents of the source directory with the S3 bucket, which will in-turn show up on the CDN.
 const webContentPath = path.join(process.cwd(), 'data');
-console.log("Syncing contents from local disk at", webContentPath);
 
 crawlDirectory(
     webContentPath,
@@ -45,7 +45,10 @@ crawlDirectory(
             });
     });
 
-// logsBucket is an S3 bucket that will contain the CDN's request logs.
+
+/**
+ * Create CDN access logs bucket
+ */
 const logsBucket = new aws.s3.Bucket(`${config.cdnName}-request-logs`,
     {
         bucket: `${config.mainBucket}-logs`,
@@ -56,7 +59,94 @@ const logsBucket = new aws.s3.Bucket(`${config.cdnName}-request-logs`,
         }
     });
 
+
+/**
+ * Creating LambdaEdge for modify headers
+ */
+let policyJson = JSON.parse(fs.readFileSync('./lambda/lambda_edge_policy.json', 'utf8'))
+
+const lambdaEdgeRolePolicy = new aws.iam.Policy(`${config.cdnName}-lambdaedge-role-policy`, {
+    path: "/",
+    policy: policyJson,
+});
+
+const roleLambdaEdge = new aws.iam.Role(`${config.cdnName}-lambdaedge-role`, {
+    assumeRolePolicy: {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {
+                    "Service": [
+                        "lambda.amazonaws.com",
+                        "edgelambda.amazonaws.com"
+                    ]
+                },
+                "Action": "sts:AssumeRole"
+            }
+        ]
+    },
+    tags: {
+        Name: `${config.cdnName}-lambdaedge-role`,
+        [config.generalTagName]: "shared",
+    }
+});
+
+new aws.iam.RolePolicyAttachment(`${config.cdnName}-lambdaedge-role-attach`, {
+    role: roleLambdaEdge.name,
+    policyArn: lambdaEdgeRolePolicy.arn,
+});
+
+const lambdaCdnLogs = new aws.cloudwatch.LogGroup(`${config.generalTagName}-${config.stack}-cdn-headers-loggroup`, {
+    name: `/aws/lambda/${aws.config.region}.${config.cdnName}-${config.stack}-headers`,
+    retentionInDays: 0
+});
+
+const lambdaCdn = new aws.lambda.Function(`${config.generalTagName}-${config.stack}-cdn-headers`, {
+    name: `${config.cdnName}-${config.stack}-headers`,
+    description: 'Lambda for modify CDN headers response',
+    code: new pulumi.asset.FileArchive("./lambda/app.zip"),
+    role: roleLambdaEdge.arn,
+    handler: "index.handler",
+    runtime: "nodejs14.x",
+    publish: true,
+    tags: {
+        Name: `${config.generalTagName}-${config.stack}-cdn-headers`,
+        [config.generalTagName]: "shared",
+    }
+}, {
+    dependsOn: [lambdaCdnLogs]
+});
+
+
+/**
+ * Setting certificate and config allowed countries
+ */
 let certificateArn: pulumi.Input<string> = config.certificateArn;
+let restrictions;
+
+if (config.allowedCountries) {
+    restrictions = {
+        geoRestriction: {
+            locations: config.allowedCountries.split(','),
+            restrictionType: 'whitelist'
+        },
+    };
+} else {
+    restrictions = {
+        geoRestriction: {
+            restrictionType: 'none'
+        },
+    };
+}
+
+
+/**
+ * Create CDN
+ */
+let lambdaCdnArnVersion = pulumi.all([lambdaCdn.arn, lambdaCdn.version]).apply(x => {
+    return Promise.resolve(`${x[0]}:${x[1]}`);
+})
 
 const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
     enabled: true,
@@ -93,10 +183,15 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
         minTtl: 0,
         defaultTtl: config.ttl,
         maxTtl: config.ttl,
+
+        lambdaFunctionAssociations: [
+            {
+                eventType: 'viewer-response',
+                lambdaArn: lambdaCdnArnVersion
+            }
+        ]
     },
 
-    // "All" is the most broad distribution, and also the most expensive.
-    // "100" is the least broad, and also the least expensive.
     priceClass: "PriceClass_100",
 
     customErrorResponses: [
@@ -105,23 +200,12 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
         {errorCode: 500, responseCode: 500, responsePagePath: "/cdn_errors/500.html"},
     ],
 
-    restrictions: {
-        geoRestriction: {
-            restrictionType: 'none'
-        },
-    },
-
-    // restrictions: {
-    //     geoRestriction: {
-    //         locations: ['PE'],
-    //         restrictionType: 'whitelist'
-    //     },
-    // },
+    restrictions,
 
     viewerCertificate: {
         acmCertificateArn: certificateArn,
         sslSupportMethod: "sni-only",
-        minimumProtocolVersion: "TLSv1.2_2019",
+        minimumProtocolVersion: "TLSv1.2_2021",
     },
 
     loggingConfig: {
@@ -136,10 +220,12 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
     }
 });
 
+
+/**
+ * Associate CDN distribution with Route 53 registry
+ */
 createAliasRecord(config.targetDomain, cdn);
 
-// crawlDirectory recursive crawls the provided directory, applying the provided function
-// to every file it contains. Doesn't handle cycles from symlinks.
 function crawlDirectory(dir: string, f: (_: string) => void) {
     const files = fs.readdirSync(dir);
 
@@ -157,7 +243,6 @@ function crawlDirectory(dir: string, f: (_: string) => void) {
     }
 }
 
-// Creates a new Route53 DNS record pointing the domain to the CloudFront distribution.
 function createAliasRecord(targetDomain: string, distribution: aws.cloudfront.Distribution): aws.route53.Record {
     const hostedZoneId = aws.route53.getZone({name: `${targetDomain}.`}, {async: true}).then(zone => zone.zoneId);
     return new aws.route53.Record(
