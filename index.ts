@@ -11,16 +11,16 @@ import * as config from "./config";
 /**
  * Create bucket for static content and upload content
  */
-const mainBucket = new aws.s3.Bucket(`${config.cdnName}-bucket`, {
-    bucket: `${config.mainBucket}`,
+const mainBucket = new aws.s3.Bucket(`${config.project}-bucket`, {
+    bucket: `${config.generalPrefix}-bucket`,
     acl: "public-read",
     website: {
         indexDocument: "index.html",
         errorDocument: "404.html",
     },
     tags: {
-        Name: `${config.cdnName}-bucket`,
-        [config.generalTagName]: "shared",
+        ...config.generalTags,
+        Name: `${config.generalPrefix}-bucket`
     }
 });
 
@@ -31,31 +31,28 @@ crawlDirectory(
     (filePath: string) => {
         const relativeFilePath = filePath.replace(webContentPath + "/", "");
 
-        new aws.s3.BucketObject(
-            relativeFilePath,
-            {
-                key: relativeFilePath,
-                acl: "public-read",
-                bucket: mainBucket,
-                contentType: mime.getType(filePath) || undefined,
-                source: new pulumi.asset.FileAsset(filePath),
-            },
-            {
-                parent: mainBucket,
-            });
+        new aws.s3.BucketObject(relativeFilePath, {
+            key: relativeFilePath,
+            acl: "public-read",
+            bucket: mainBucket,
+            contentType: mime.getType(filePath) || undefined,
+            source: new pulumi.asset.FileAsset(filePath)
+        }, {
+            parent: mainBucket,
+        });
     });
 
 
 /**
  * Create CDN access logs bucket
  */
-const logsBucket = new aws.s3.Bucket(`${config.cdnName}-request-logs`,
+const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`,
     {
-        bucket: `${config.mainBucket}-logs`,
+        bucket: `${config.generalPrefix}-bucket-logs`,
         acl: "private",
         tags: {
-            Name: `${config.cdnName}-request-logs`,
-            [config.generalTagName]: "shared",
+            ...config.generalTags,
+            Name: `${config.generalPrefix}-bucket-logs`
         }
     });
 
@@ -65,12 +62,12 @@ const logsBucket = new aws.s3.Bucket(`${config.cdnName}-request-logs`,
  */
 let policyJson = JSON.parse(fs.readFileSync('./lambda/lambda_edge_policy.json', 'utf8'))
 
-const lambdaEdgeRolePolicy = new aws.iam.Policy(`${config.cdnName}-lambdaedge-role-policy`, {
+const lambdaEdgeRolePolicy = new aws.iam.Policy(`${config.project}-lambdaedge-role-policy`, {
     path: "/",
     policy: policyJson,
 });
 
-const roleLambdaEdge = new aws.iam.Role(`${config.cdnName}-lambdaedge-role`, {
+const roleLambdaEdge = new aws.iam.Role(`${config.project}-lambdaedge-role`, {
     assumeRolePolicy: {
         "Version": "2012-10-17",
         "Statement": [
@@ -87,8 +84,8 @@ const roleLambdaEdge = new aws.iam.Role(`${config.cdnName}-lambdaedge-role`, {
         ]
     },
     tags: {
-        Name: `${config.cdnName}-lambdaedge-role`,
-        [config.generalTagName]: "shared",
+        ...config.generalTags,
+        Name: `${config.generalPrefix}-lambdaedge-role`,
     }
 });
 
@@ -97,13 +94,14 @@ new aws.iam.RolePolicyAttachment(`${config.cdnName}-lambdaedge-role-attach`, {
     policyArn: lambdaEdgeRolePolicy.arn,
 });
 
-const lambdaCdnLogs = new aws.cloudwatch.LogGroup(`${config.generalTagName}-${config.stack}-cdn-headers-loggroup`, {
-    name: `/aws/lambda/${aws.config.region}.${config.cdnName}-${config.stack}-headers`,
-    retentionInDays: 0
+const lambdaCdnLogs = new aws.cloudwatch.LogGroup(`${config.project}-cdn-headers-loggroup`, {
+    name: `/aws/lambda/${aws.config.region}.${config.generalPrefix}-cdn-headers-loggroup`,
+    retentionInDays: 0,
+    tags: config.generalTags
 });
 
-const lambdaCdn = new aws.lambda.Function(`${config.generalTagName}-${config.stack}-cdn-headers`, {
-    name: `${config.cdnName}-${config.stack}-headers`,
+const lambdaCdn = new aws.lambda.Function(`${config.project}-cdn-headers`, {
+    name: `${config.generalPrefix}-lambda-headers`,
     description: 'Lambda for modify CDN headers response',
     code: new pulumi.asset.FileArchive("./lambda/app.zip"),
     role: roleLambdaEdge.arn,
@@ -111,8 +109,8 @@ const lambdaCdn = new aws.lambda.Function(`${config.generalTagName}-${config.sta
     runtime: "nodejs14.x",
     publish: true,
     tags: {
-        Name: `${config.generalTagName}-${config.stack}-cdn-headers`,
-        [config.generalTagName]: "shared",
+        ...config.generalTags,
+        Name: `${config.generalPrefix}-lambda-cdn-headers`,
     }
 }, {
     dependsOn: [lambdaCdnLogs]
@@ -215,8 +213,8 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
     },
 
     tags: {
-        Name: `${config.cdnName}-cdn`,
-        [config.generalTagName]: "shared",
+        ...config.generalTags,
+        Name: `${config.generalPrefix}-cdn`,
     }
 });
 
