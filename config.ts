@@ -18,9 +18,8 @@ export const generalTags = {
     iac_version: '3.35.3'
 }
 
-export const cdnName = configPulumi.get("cdnName");
 export const ttl = parseInt(configPulumi.get("ttl"));
-export const targetDomain = configPulumi.get("targetDomain");
-export const certificateArn = configPulumi.get("certificateArn");
+export const domainTarget = configPulumi.get("domainTarget");
+export const domainCertificateArn = configPulumi.get("domainCertificateArn");
 export const allowedCountries = configPulumi.get("allowedCountries");
 

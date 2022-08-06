@@ -89,7 +89,7 @@ const roleLambdaEdge = new aws.iam.Role(`${config.project}-lambdaedge-role`, {
     }
 });
 
-new aws.iam.RolePolicyAttachment(`${config.cdnName}-lambdaedge-role-attach`, {
+new aws.iam.RolePolicyAttachment(`${config.project}-lambdaedge-role-attach`, {
     role: roleLambdaEdge.name,
     policyArn: lambdaEdgeRolePolicy.arn,
 });
@@ -120,7 +120,7 @@ const lambdaCdn = new aws.lambda.Function(`${config.project}-cdn-headers`, {
 /**
  * Setting certificate and config allowed countries
  */
-let certificateArn: pulumi.Input<string> = config.certificateArn;
+let certificateArn: pulumi.Input<string> = config.domainCertificateArn;
 let restrictions;
 
 if (config.allowedCountries) {
@@ -146,9 +146,9 @@ let lambdaCdnArnVersion = pulumi.all([lambdaCdn.arn, lambdaCdn.version]).apply(x
     return Promise.resolve(`${x[0]}:${x[1]}`);
 })
 
-const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
+const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     enabled: true,
-    aliases: [config.targetDomain],
+    aliases: [config.domainTarget],
 
     origins: [
         {
@@ -209,7 +209,7 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
     loggingConfig: {
         bucket: logsBucket.bucketDomainName,
         includeCookies: false,
-        prefix: `${config.targetDomain}/`,
+        prefix: `${config.domainTarget}/`,
     },
 
     tags: {
@@ -222,7 +222,7 @@ const cdn = new aws.cloudfront.Distribution(`${config.cdnName}-cdn`, {
 /**
  * Associate CDN distribution with Route 53 registry
  */
-createAliasRecord(config.targetDomain, cdn);
+createAliasRecord(config.domainTarget, cdn);
 
 function crawlDirectory(dir: string, f: (_: string) => void) {
     const files = fs.readdirSync(dir);
@@ -261,4 +261,4 @@ function createAliasRecord(targetDomain: string, distribution: aws.cloudfront.Di
 
 export const bucketName = mainBucket.id;
 export const cloudFrontDomain = cdn !== undefined ? cdn.domainName : '';
-export const targetDomainEndpoint = `https://${config.targetDomain}`;
+export const targetDomainEndpoint = `https://${config.domainTarget}`;
