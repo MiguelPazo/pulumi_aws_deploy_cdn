@@ -8,7 +8,7 @@ const configPulumi = new pulumi.Config();
 export const stack = pulumi.getStack();
 export const project = configPulumi.get("project");
 export const appName = configPulumi.get("appName");
-export const generalPrefix = `${project}-${appName}-${stack}`;
+export const generalPrefix = `${project}-${appName}-${stack}-cdn`;
 
 export const generalTags = {
     project: project,
