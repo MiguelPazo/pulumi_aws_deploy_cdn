@@ -13,7 +13,6 @@ import * as config from "./config";
  */
 const mainBucket = new aws.s3.Bucket(`${config.project}-bucket`, {
     bucket: `${config.generalPrefix}-bucket`,
-    acl: "public-read",
     website: {
         indexDocument: "index.html",
         errorDocument: "404.html",
@@ -23,6 +22,36 @@ const mainBucket = new aws.s3.Bucket(`${config.project}-bucket`, {
         Name: `${config.generalPrefix}-bucket`
     }
 });
+
+const accessBlock = new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-block`, {
+    bucket: mainBucket.id,
+    blockPublicAcls: false,
+    blockPublicPolicy: false,
+    ignorePublicAcls: false,
+    restrictPublicBuckets: false
+});
+
+new aws.s3.BucketPolicy(`${config.project}-bucket-policy`, {
+    bucket: mainBucket.bucket,
+    policy: mainBucket.bucket.apply(publicReadPolicyForBucket)
+}, {dependsOn: [accessBlock]})
+
+function publicReadPolicyForBucket(bucketName: string) {
+    console.log(bucketName)
+    return JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [{
+            Effect: "Allow",
+            Principal: "*",
+            Action: [
+                "s3:GetObject"
+            ],
+            Resource: [
+                `arn:aws:s3:::${bucketName}/*`
+            ]
+        }]
+    });
+}
 
 const webContentPath = path.join(process.cwd(), 'data');
 
