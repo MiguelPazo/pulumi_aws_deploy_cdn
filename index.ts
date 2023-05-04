@@ -74,15 +74,21 @@ crawlDirectory(
 /**
  * Create CDN access logs bucket
  */
-const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`,
-    {
-        bucket: `${config.generalPrefix}-bucket-logs`,
-        tags: {
-            ...config.generalTags,
-            Name: `${config.generalPrefix}-bucket-logs`
-        }
-    });
+const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`, {
+    bucket: `${config.generalPrefix}-bucket-logs`,
+    tags: {
+        ...config.generalTags,
+        Name: `${config.generalPrefix}-bucket-logs`
+    }
+});
 
+new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-logs-block`, {
+    bucket: logsBucket.id,
+    blockPublicAcls: false,
+    blockPublicPolicy: false,
+    ignorePublicAcls: false,
+    restrictPublicBuckets: false
+});
 
 /**
  * Creating LambdaEdge for modify headers
