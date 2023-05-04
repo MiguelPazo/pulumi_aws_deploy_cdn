@@ -62,7 +62,6 @@ crawlDirectory(
 
         new aws.s3.BucketObject(relativeFilePath, {
             key: relativeFilePath,
-            acl: "public-read",
             bucket: mainBucket,
             contentType: mime.getType(filePath) || undefined,
             source: new pulumi.asset.FileAsset(filePath)
