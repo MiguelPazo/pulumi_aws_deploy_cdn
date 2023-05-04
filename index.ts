@@ -76,6 +76,7 @@ crawlDirectory(
  */
 const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`, {
     bucket: `${config.generalPrefix}-bucket-logs`,
+    acl: "private",
     tags: {
         ...config.generalTags,
         Name: `${config.generalPrefix}-bucket-logs`
@@ -89,6 +90,14 @@ new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-logs-block`,
     ignorePublicAcls: false,
     restrictPublicBuckets: false
 });
+
+new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-logs-ownership`, {
+    bucket: logsBucket.id,
+    rule: {
+        objectOwnership: "ObjectWriter",
+    },
+});
+
 
 /**
  * Creating LambdaEdge for modify headers
