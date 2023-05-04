@@ -77,7 +77,6 @@ crawlDirectory(
 const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`,
     {
         bucket: `${config.generalPrefix}-bucket-logs`,
-        acl: "private",
         tags: {
             ...config.generalTags,
             Name: `${config.generalPrefix}-bucket-logs`
