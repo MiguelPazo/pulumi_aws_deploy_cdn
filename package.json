@@ -6,13 +6,13 @@
   },
   "keywords": [],
   "author": "Miguel Pazo <https://miguelpazo.com>",
-  "devDependencies": {
-    "@types/node": "^10.0.0",
-    "@types/mime": "^2.0.3"
-  },
   "dependencies": {
-    "@pulumi/aws": "^3.0.0",
-    "@pulumi/awsx": "^0.22.0",
-    "@pulumi/pulumi": "^2.0.0"
+    "@pulumi/aws": "^5.39.0",
+    "@pulumi/awsx": "^1.0.2",
+    "@pulumi/pulumi": "^3.66.0"
+  },
+  "devDependencies": {
+    "@types/mime": "^3.0.1",
+    "@types/node": "^20.0.0"
   }
 }

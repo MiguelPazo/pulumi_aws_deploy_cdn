@@ -11,12 +11,28 @@ import * as config from "./config";
 /**
  * Create bucket for static content and upload content
  */
+const currentUser = aws.s3.getCanonicalUserId({});
+
 const mainBucket = new aws.s3.Bucket(`${config.project}-bucket`, {
     bucket: `${config.generalPrefix}-bucket`,
     website: {
         indexDocument: "index.html",
         errorDocument: "404.html",
     },
+    grants: [
+        {
+            id: currentUser.then(currentUser => currentUser.id),
+            type: "CanonicalUser",
+            permissions: ["FULL_CONTROL"],
+        },
+        {
+            type: "Group",
+            permissions: [
+                "READ",
+            ],
+            uri: "http://acs.amazonaws.com/groups/global/AllUsers",
+        },
+    ],
     tags: {
         ...config.generalTags,
         Name: `${config.generalPrefix}-bucket`
@@ -29,6 +45,13 @@ const accessBlock = new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket
     blockPublicPolicy: false,
     ignorePublicAcls: false,
     restrictPublicBuckets: false
+});
+
+new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-ownership`, {
+    bucket: mainBucket.id,
+    rule: {
+        objectOwnership: "ObjectWriter",
+    },
 });
 
 new aws.s3.BucketPolicy(`${config.project}-bucket-policy`, {
