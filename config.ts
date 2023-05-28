@@ -22,4 +22,5 @@ export const ttl = parseInt(configPulumi.get("ttl"));
 export const domainTarget = configPulumi.get("domainTarget");
 export const domainCertificateArn = configPulumi.get("domainCertificateArn");
 export const allowedCountries = configPulumi.get("allowedCountries");
+export const headerContentSecurityPolicy = configPulumi.get("headerContentSecurityPolicy");
 

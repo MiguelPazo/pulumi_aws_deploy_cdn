@@ -123,66 +123,6 @@ new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-logs-ownersh
 
 
 /**
- * Creating LambdaEdge for modify headers
- */
-let policyJson = JSON.parse(fs.readFileSync('./lambda/lambda_edge_policy.json', 'utf8'))
-
-const lambdaEdgeRolePolicy = new aws.iam.Policy(`${config.project}-lambdaedge-role-policy`, {
-    path: "/",
-    policy: policyJson,
-});
-
-const roleLambdaEdge = new aws.iam.Role(`${config.project}-lambdaedge-role`, {
-    assumeRolePolicy: {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": {
-                    "Service": [
-                        "lambda.amazonaws.com",
-                        "edgelambda.amazonaws.com"
-                    ]
-                },
-                "Action": "sts:AssumeRole"
-            }
-        ]
-    },
-    tags: {
-        ...config.generalTags,
-        Name: `${config.generalPrefix}-lambdaedge-role`,
-    }
-});
-
-new aws.iam.RolePolicyAttachment(`${config.project}-lambdaedge-role-attach`, {
-    role: roleLambdaEdge.name,
-    policyArn: lambdaEdgeRolePolicy.arn,
-});
-
-const lambdaCdnLogs = new aws.cloudwatch.LogGroup(`${config.project}-cdn-headers-loggroup`, {
-    name: `/aws/lambda/${aws.config.region}.${config.generalPrefix}-cdn-headers-loggroup`,
-    retentionInDays: 0,
-    tags: config.generalTags
-});
-
-const lambdaCdn = new aws.lambda.Function(`${config.project}-cdn-headers`, {
-    name: `${config.generalPrefix}-lambda-headers`,
-    description: 'Lambda for modify CDN headers response',
-    code: new pulumi.asset.FileArchive("./lambda/app.zip"),
-    role: roleLambdaEdge.arn,
-    handler: "index.handler",
-    runtime: "nodejs14.x",
-    publish: true,
-    tags: {
-        ...config.generalTags,
-        Name: `${config.generalPrefix}-lambda-cdn-headers`,
-    }
-}, {
-    dependsOn: [lambdaCdnLogs]
-});
-
-
-/**
  * Setting certificate and config allowed countries
  */
 let certificateArn: pulumi.Input<string> = config.domainCertificateArn;
@@ -207,9 +147,42 @@ if (config.allowedCountries) {
 /**
  * Create CDN
  */
-let lambdaCdnArnVersion = pulumi.all([lambdaCdn.arn, lambdaCdn.version]).apply(x => {
-    return Promise.resolve(`${x[0]}:${x[1]}`);
-})
+const cdnHeaderPolicy = new aws.cloudfront.ResponseHeadersPolicy(`${config.project}-header-policy`, {
+    name: `${config.generalPrefix}-header-policy`,
+    securityHeadersConfig: {
+        contentTypeOptions: {
+            override: true
+        },
+        frameOptions: {
+            override: true,
+            frameOption: "SAMEORIGIN"
+        },
+        xssProtection: {
+            override: true,
+            modeBlock: true,
+            protection: true
+        },
+        strictTransportSecurity: {
+            override: true,
+            accessControlMaxAgeSec: 31536000,
+            includeSubdomains: true,
+            preload: true
+        },
+        contentSecurityPolicy: {
+            override: true,
+            contentSecurityPolicy: config.headerContentSecurityPolicy
+        }
+    },
+    customHeadersConfig: {
+        items: [
+            {
+                override: true,
+                header: "Cache-Control",
+                value: "no-cache='Set-Cookie'"
+            },
+        ]
+    }
+});
 
 const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     enabled: true,
@@ -232,27 +205,19 @@ const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
 
     defaultCacheBehavior: {
         targetOriginId: mainBucket.arn,
-
         viewerProtocolPolicy: "redirect-to-https",
         allowedMethods: ["GET", "HEAD", "OPTIONS"],
         cachedMethods: ["GET", "HEAD", "OPTIONS"],
+        responseHeadersPolicyId: cdnHeaderPolicy.id,
         compress: true,
+        minTtl: 0,
+        defaultTtl: config.ttl,
+        maxTtl: config.ttl,
 
         forwardedValues: {
             cookies: {forward: "none"},
             queryString: false,
         },
-
-        minTtl: 0,
-        defaultTtl: config.ttl,
-        maxTtl: config.ttl,
-
-        lambdaFunctionAssociations: [
-            {
-                eventType: 'viewer-response',
-                lambdaArn: lambdaCdnArnVersion
-            }
-        ]
     },
 
     priceClass: "PriceClass_100",
