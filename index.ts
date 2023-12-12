@@ -9,42 +9,25 @@ import * as path from "path";
 import * as config from "./config";
 
 /**
+ * Create OAC
+ */
+const cdnOac = new aws.cloudfront.OriginAccessControl("example", {
+    description: `${config.generalPrefix}-oac`,
+    originAccessControlOriginType: "s3",
+    signingBehavior: "always",
+    signingProtocol: "sigv4",
+});
+
+/**
  * Create bucket for static content and upload content
  */
-const currentUser = aws.s3.getCanonicalUserId({});
-
 const mainBucket = new aws.s3.Bucket(`${config.project}-bucket`, {
     bucket: `${config.generalPrefix}-bucket`,
-    website: {
-        indexDocument: "index.html",
-        errorDocument: "404.html",
-    },
-    grants: [
-        {
-            id: currentUser.then(currentUser => currentUser.id),
-            type: "CanonicalUser",
-            permissions: ["FULL_CONTROL"],
-        },
-        {
-            type: "Group",
-            permissions: [
-                "READ",
-            ],
-            uri: "http://acs.amazonaws.com/groups/global/AllUsers",
-        },
-    ],
+    acl: "private",
     tags: {
         ...config.generalTags,
         Name: `${config.generalPrefix}-bucket`
     }
-});
-
-const accessBlock = new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-block`, {
-    bucket: mainBucket.id,
-    blockPublicAcls: false,
-    blockPublicPolicy: false,
-    ignorePublicAcls: false,
-    restrictPublicBuckets: false
 });
 
 new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-ownership`, {
@@ -53,28 +36,6 @@ new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-ownership`, 
         objectOwnership: "ObjectWriter",
     },
 });
-
-new aws.s3.BucketPolicy(`${config.project}-bucket-policy`, {
-    bucket: mainBucket.bucket,
-    policy: mainBucket.bucket.apply(publicReadPolicyForBucket)
-}, {dependsOn: [accessBlock]})
-
-function publicReadPolicyForBucket(bucketName: string) {
-    console.log(bucketName)
-    return JSON.stringify({
-        Version: "2012-10-17",
-        Statement: [{
-            Effect: "Allow",
-            Principal: "*",
-            Action: [
-                "s3:GetObject"
-            ],
-            Resource: [
-                `arn:aws:s3:::${bucketName}/*`
-            ]
-        }]
-    });
-}
 
 const webContentPath = path.join(process.cwd(), 'data');
 
@@ -106,20 +67,21 @@ const logsBucket = new aws.s3.Bucket(`${config.project}-bucket-logs`, {
     }
 });
 
-new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-logs-block`, {
-    bucket: logsBucket.id,
-    blockPublicAcls: false,
-    blockPublicPolicy: false,
-    ignorePublicAcls: false,
-    restrictPublicBuckets: false
-});
-
 new aws.s3.BucketOwnershipControls(`${config.project}-bucket-access-logs-ownership`, {
     bucket: logsBucket.id,
     rule: {
         objectOwnership: "ObjectWriter",
     },
 });
+
+
+// new aws.s3.BucketPublicAccessBlock(`${config.project}-bucket-access-logs-block`, {
+//     bucket: logsBucket.id,
+//     blockPublicAcls: false,
+//     blockPublicPolicy: false,
+//     ignorePublicAcls: false,
+//     restrictPublicBuckets: false
+// });
 
 
 /**
@@ -184,6 +146,7 @@ const cdnHeaderPolicy = new aws.cloudfront.ResponseHeadersPolicy(`${config.proje
     }
 });
 
+
 const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     enabled: true,
     aliases: [config.domainTarget],
@@ -191,13 +154,8 @@ const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     origins: [
         {
             originId: mainBucket.arn,
-            domainName: mainBucket.websiteEndpoint,
-            customOriginConfig: {
-                originProtocolPolicy: "http-only",
-                httpPort: 80,
-                httpsPort: 443,
-                originSslProtocols: ["TLSv1.2"],
-            },
+            domainName: pulumi.interpolate`${mainBucket.bucket}.s3.us-east-1.amazonaws.com`,
+            originAccessControlId: cdnOac.id
         },
     ],
 
@@ -248,6 +206,35 @@ const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     }
 });
 
+/**
+ * Permissions to S3
+ */
+new aws.s3.BucketPolicy(`${config.project}-bucket-policy`, {
+    bucket: mainBucket.id,
+    policy: pulumi.all([mainBucket.arn, cdn.arn])
+        .apply(x => {
+            const policy = JSON.stringify({
+                Version: "2012-10-17",
+                Statement: [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": "cloudfront.amazonaws.com"
+                        },
+                        "Action": "s3:GetObject",
+                        "Resource": `${x[0]}/*`,
+                        "Condition": {
+                            "StringEquals": {
+                                "AWS:SourceArn": x[1]
+                            }
+                        }
+                    }
+                ]
+            });
+
+            return policy;
+        }),
+});
 
 /**
  * Associate CDN distribution with Route 53 registry
