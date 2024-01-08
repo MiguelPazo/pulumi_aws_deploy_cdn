@@ -105,9 +105,20 @@ if (config.allowedCountries) {
     };
 }
 
+/**
+ * CloudFront function
+ */
+const fnRewrite = new aws.cloudfront.Function(`${config.project}-cdn-function`, {
+    name: `${config.generalPrefix}-cdn-function-rewrite`,
+    comment: `${config.generalPrefix}-cdn-function-rewrite`,
+    runtime: "cloudfront-js-1.0",
+    publish: true,
+    code: fs.readFileSync(`${__dirname}/functions/rewrite.js`, "utf8")
+});
+
 
 /**
- * Create CDN
+ * CDN Headers response
  */
 const cdnHeaderPolicy = new aws.cloudfront.ResponseHeadersPolicy(`${config.project}-header-policy`, {
     name: `${config.generalPrefix}-header-policy`,
@@ -146,7 +157,9 @@ const cdnHeaderPolicy = new aws.cloudfront.ResponseHeadersPolicy(`${config.proje
     }
 });
 
-
+/**
+ * CDN
+ */
 const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
     enabled: true,
     aliases: [config.domainTarget],
@@ -167,6 +180,12 @@ const cdn = new aws.cloudfront.Distribution(`${config.project}-cdn`, {
         allowedMethods: ["GET", "HEAD", "OPTIONS"],
         cachedMethods: ["GET", "HEAD", "OPTIONS"],
         responseHeadersPolicyId: cdnHeaderPolicy.id,
+        functionAssociations: [
+            {
+                eventType: 'viewer-request',
+                functionArn: fnRewrite.arn
+            }
+        ],
         compress: true,
         minTtl: 0,
         defaultTtl: config.ttl,
@@ -240,6 +259,7 @@ new aws.s3.BucketPolicy(`${config.project}-bucket-policy`, {
  * Associate CDN distribution with Route 53 registry
  */
 createAliasRecord(config.domainTarget, cdn);
+
 
 function crawlDirectory(dir: string, f: (_: string) => void) {
     const files = fs.readdirSync(dir);
